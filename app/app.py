@@ -1,94 +1,228 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import os
 
-st.set_page_config(page_title="Cancer Risk Predictor", layout="centered")
+st.set_page_config(
+    page_title="Cancer Risk Predictor",
+    page_icon="🩺",
+    layout="centered"
+)
 
-# --- Load artifacts once on start ---
+# --- Paths ---
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+MODEL_PATH = os.path.join(BASE_DIR, "model_xgb_new.pkl")
+LABEL_ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
+FEATURE_NAMES_PATH = os.path.join(BASE_DIR, "feature_names.pkl")
+
+
+# --- Load model and supporting files ---
 @st.cache_resource
 def load_artifacts():
-    model = joblib.load('final_xgb_class_weighted.pkl')
-    le = joblib.load('label_encoder.pkl')         # LabelEncoder fitted on y_train
-    feature_names = joblib.load('feature_names.pkl')
+    model = joblib.load(MODEL_PATH)
+    le = joblib.load(LABEL_ENCODER_PATH)
+    feature_names = joblib.load(FEATURE_NAMES_PATH)
+
     return model, le, feature_names
+
 
 model, le, FEATURE_NAMES = load_artifacts()
 
-st.title("Cancer Risk Level Predictor")
-st.markdown("Predict `Risk_Level` (Low / Medium / High) from patient features.")
 
-# --- Upload CSV or manual input ---
-option = st.radio("Prediction mode", ("Upload CSV (batch)", "Manual input (single)"))
+# --- App title ---
+st.title("🩺 Cancer Risk Level Predictor")
 
+st.markdown(
+    "Predict **Cancer Risk Level (Low / Medium / High)** "
+    "using the trained XGBoost machine learning model."
+)
+
+
+# --- Prediction mode ---
+option = st.radio(
+    "Prediction Mode",
+    ("Manual Input", "Upload CSV")
+)
+
+
+# --- Preprocessing ---
 def preprocess_input(df):
-    """
-    Ensure DF has columns in FEATURE_NAMES order and numeric dtype.
-    Fills missing columns with 0 and reorders.
-    """
-    # If uploaded CSV contains extra columns, keep only the feature columns
+
     missing = [c for c in FEATURE_NAMES if c not in df.columns]
+
     if missing:
-        st.warning(f"Missing columns in input — filling {len(missing)} missing columns with zeros: {missing}")
+        st.warning(
+            f"Missing columns detected. Filling {len(missing)} "
+            f"missing columns with zeros."
+        )
+
         for c in missing:
             df[c] = 0
-    # Keep only required columns and in same order
+
+    # Keep only required features
     df = df[FEATURE_NAMES].copy()
-    # Convert to numeric (coerce errors to NaN then fill)
-    df = df.apply(pd.to_numeric, errors='coerce').fillna(0)
+
+    # Convert everything to numeric
+    df = df.apply(
+        pd.to_numeric,
+        errors="coerce"
+    ).fillna(0)
+
     return df
 
-if option == "Upload CSV (batch)":
-    uploaded_file = st.file_uploader("Upload CSV with feature columns", type=['csv'])
-    if uploaded_file is not None:
-        input_df = pd.read_csv(uploaded_file)
+
+# =========================================================
+# MANUAL INPUT
+# =========================================================
+
+if option == "Manual Input":
+
+    st.subheader("Enter Patient Information")
+
+    input_data = {}
+
+    # Create input fields
+    for feature in FEATURE_NAMES:
+
+        input_data[feature] = st.number_input(
+            feature,
+            value=0.0
+        )
+
+    if st.button("🔍 Predict Cancer Risk"):
+
+        input_df = pd.DataFrame([input_data])
+
         X = preprocess_input(input_df)
-        preds_enc = model.predict(X)
-        probs = model.predict_proba(X)
-        preds = le.inverse_transform(preds_enc)
-        result = X.copy()
-        result['Predicted_Risk_Level'] = preds
-        # attach probabilities for each class
-        for i, cls in enumerate(le.classes_):
-            result[f'prob_{cls}'] = probs[:, i]
-        st.success("Predictions ready")
-        st.dataframe(result)
-        st.download_button("Download results (CSV)", result.to_csv(index=False), file_name="predictions.csv", mime="text/csv")
+
+        # Prediction
+        prediction_encoded = model.predict(X)[0]
+
+        probabilities = model.predict_proba(X)[0]
+
+        prediction = le.inverse_transform(
+            [prediction_encoded]
+        )[0]
+
+        # Result
+        st.subheader("Prediction Result")
+
+        st.success(
+            f"Predicted Risk Level: **{prediction}**"
+        )
+
+        # Probability table
+        probability_df = pd.DataFrame({
+            "Risk Level": le.classes_,
+            "Probability": probabilities
+        })
+
+        probability_df = probability_df.sort_values(
+            "Probability",
+            ascending=False
+        ).reset_index(drop=True)
+
+        st.subheader("Risk Probabilities")
+
+        st.dataframe(
+            probability_df,
+            use_container_width=True
+        )
+
+        # High-risk probability
+        high_risk_rows = probability_df[
+            probability_df["Risk Level"] == "High"
+        ]
+
+        if not high_risk_rows.empty:
+
+            high_probability = high_risk_rows[
+                "Probability"
+            ].iloc[0]
+
+            st.info(
+                f"Probability of High Risk: "
+                f"**{high_probability:.2%}**"
+            )
+
+
+# =========================================================
+# CSV UPLOAD
+# =========================================================
 
 else:
-    st.sidebar.header("Patient features (manual)")
-    input_data = {}
-    # create numeric inputs for each feature (you may want to group or change ranges)
-    for feat in FEATURE_NAMES:
-        # heuristic default: use 0 as default; change for Age/BMI etc if you prefer
-        val = st.sidebar.number_input(feat, value=float(0.0))
-        input_data[feat] = val
 
-    if st.sidebar.button("Predict"):
-        X_single = pd.DataFrame([input_data])
-        X_proc = preprocess_input(X_single)
-        pred_enc = model.predict(X_proc)[0]
-        probs = model.predict_proba(X_proc)[0]
-        pred = le.inverse_transform([pred_enc])[0]
+    st.subheader("Upload Patient Data")
 
-        st.write("### Prediction")
-        st.write(f"**Predicted Risk_Level:** {pred}")
-        st.write("**Class probabilities:**")
-        prob_df = pd.DataFrame({
-            'class': list(le.classes_),
-            'probability': probs
-        }).sort_values('probability', ascending=False).reset_index(drop=True)
-        st.table(prob_df)
+    uploaded_file = st.file_uploader(
+        "Upload CSV file containing patient features",
+        type=["csv"]
+    )
 
-        # optional: highlight 'High' probability and threshold advice
-        high_prob = prob_df.loc[prob_df['class']=='High','probability'].values[0]
-        st.info(f"Probability of High risk: {high_prob:.2f}")
-        if high_prob >= 0.5:
-            st.warning("High risk probability >= 0.5 — consider clinical follow-up.")
-        else:
-            st.success("High risk probability below 0.5")
+    if uploaded_file is not None:
 
-# Footer
+        input_df = pd.read_csv(uploaded_file)
+
+        st.write("Uploaded Data")
+
+        st.dataframe(
+            input_df,
+            use_container_width=True
+        )
+
+        X = preprocess_input(input_df)
+
+        # Predictions
+        predictions_encoded = model.predict(X)
+
+        probabilities = model.predict_proba(X)
+
+        predictions = le.inverse_transform(
+            predictions_encoded
+        )
+
+        # Results
+        result = input_df.copy()
+
+        result["Predicted_Risk_Level"] = predictions
+
+        for i, class_name in enumerate(le.classes_):
+
+            result[
+                f"Probability_{class_name}"
+            ] = probabilities[:, i]
+
+        st.success("Predictions generated successfully!")
+
+        st.subheader("Prediction Results")
+
+        st.dataframe(
+            result,
+            use_container_width=True
+        )
+
+        # Download results
+        csv = result.to_csv(index=False)
+
+        st.download_button(
+            label="⬇️ Download Predictions",
+            data=csv,
+            file_name="cancer_risk_predictions.csv",
+            mime="text/csv"
+        )
+
+
+# --- Disclaimer ---
+
 st.markdown("---")
-st.caption("Model: class-weighted XGBoost (tuned via Optuna). Ensure uploaded CSV has the same feature columns used in training.")
+
+st.caption(
+    "⚠️ This application is an educational machine learning project "
+    "and is not intended for medical diagnosis or clinical decision-making."
+)
+
+st.caption(
+    "Model: XGBoost | Cancer Risk Prediction"
+)
