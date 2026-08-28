@@ -310,16 +310,15 @@ Based on the overall evaluation, this model was selected as the final model for 
 
 ---
 
-# Model Performance
-
 | Model                                   | Accuracy | Macro F1 | Weighted F1 | High Recall | Low Recall | Medium Recall |
 | --------------------------------------- | -------: | -------: | ----------: | ----------: | ---------: | ------------: |
 | Random Forest — Balanced, No Leakage    |     0.84 |     0.64 |        0.83 |        0.35 |       0.58 |          0.92 |
 | Optuna Tuned RF — Macro F1 Focus        |     0.83 |     0.65 |        0.83 |        0.45 |       0.63 |          0.89 |
 | Optuna Tuned RF — High Recall Focus     |     0.80 |     0.65 |        0.81 |        0.60 |       0.74 |          0.82 |
 | Baseline XGBoost — SMOTE                |     0.85 |     0.68 |        0.85 |        0.45 |       0.68 |          0.92 |
-| Class-Weighted XGBoost                  |     0.64 |     0.54 |        0.67 |        0.75 |       0.82 |          0.59 |
+| Class-Weighted XGBoost                  |     0.64 |     0.54 |        0.67 |    **0.75** |   **0.82** |          0.59 |
 | **Optuna Tuned Class-Weighted XGBoost** | **0.88** | **0.72** |    **0.87** |    **0.45** |   **0.78** |      **0.92** |
+
 
 ---
 
